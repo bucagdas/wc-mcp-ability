@@ -18,9 +18,7 @@ The demo creates a custom ability that retrieves WooCommerce store information a
 
 - WordPress 6.0 or higher
 - PHP 8.0 or higher
-- WooCommerce plugin (required dependency)
-- WordPress Abilities API
-- WooCommerce MCP Adapter (available in WooCommerce 10.3+)
+- WooCommerce 10.3+ (includes WordPress Abilities API and MCP Adapter)
 
 ## Installation
 
