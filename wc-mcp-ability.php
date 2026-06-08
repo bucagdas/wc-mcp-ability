@@ -1,211 +1,429 @@
 <?php
 /**
- * Plugin Name: WooCommerce MCP Ability Demo
- * Plugin URI: https://github.com/woocommerce/woocommerce
- * Description: Demonstrates how third-party plugins can integrate with the WooCommerce MCP server by registering custom abilities.
- * Version: 1.0.0
- * Requires at least: 6.0
+ * Plugin Name: WooCommerce MCP Ability
+ * Plugin URI: https://github.com/bucagdas/wc-mcp-ability
+ * Description: WooCommerce abilities for MCP. Manage product categories and run any WooCommerce wc/v3 REST request: products, orders, customers, coupons, settings and reports.
+ * Version: 1.0.1
+ * Requires at least: 7.0
  * Requires PHP: 8.0
- * Author: WooCommerce
- * Author URI: https://woocommerce.com/
+ * Author: bucagdas
+ * Author URI: https://github.com/bucagdas/
  * Text Domain: wc-mcp-ability
- * Domain Path: /languages
  * Requires Plugins: woocommerce
  */
 
-declare( strict_types=1 );
+namespace WCMCPAbility;
 
-namespace WCAbilitiesDemo;
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
 
-defined( 'ABSPATH' ) || exit;
+class Plugin {
 
-/**
- * WooCommerce Abilities Demo Plugin
- *
- * This plugin demonstrates how third-party developers can integrate with the
- * WooCommerce MCP (Model Context Protocol) server by registering their own abilities
- * using the WordPress Abilities API.
- */
-class WCAbilitiesDemo {
+	const CATEGORY = 'wc-mcp';
 
-	/**
-	 * Plugin version.
-	 */
-	public const VERSION = '1.0.0';
-
-	/**
-	 * Initialize the plugin.
-	 */
 	public static function init(): void {
-		// Register our store info ability when the abilities API is ready
-		add_action( 'abilities_api_init', array( __CLASS__, 'register_store_info_ability' ) );
-
-		// Allow our demo ability to be included in MCP server
-		add_filter( 'woocommerce_mcp_include_ability', array( __CLASS__, 'include_demo_ability_in_mcp' ), 10, 2 );
+		add_action( 'wp_abilities_api_categories_init', array( __CLASS__, 'register_category' ) );
+		add_action( 'wp_abilities_api_init', array( __CLASS__, 'register_abilities' ) );
+		add_filter( 'woocommerce_mcp_include_ability', array( __CLASS__, 'include_in_woocommerce_mcp' ), 10, 2 );
 	}
 
 	/**
-	 * Register the store info ability with the WordPress Abilities API.
-	 *
-	 * This demonstrates how third-party plugins can register abilities that
-	 * will be automatically discovered and made available through the MCP server.
+	 * Register the ability category. Must run on wp_abilities_api_categories_init.
 	 */
-	public static function register_store_info_ability(): void {
-		// Only proceed if wp_register_ability function exists (from WordPress Abilities API)
-		if ( ! function_exists( 'wp_register_ability' ) ) {
+	public static function register_category(): void {
+		if ( ! function_exists( 'wp_register_ability_category' ) ) {
 			return;
 		}
-
-		wp_register_ability(
-			'woocommerce-demo/store-info',
+		wp_register_ability_category(
+			self::CATEGORY,
 			array(
-				'label'             => __( 'Get Store Information (Demo)', 'wc-mcp-ability' ),
-				'description'       => __( 'Demo implementation: Retrieves basic information about the WooCommerce store including name, URL, version, and basic statistics.', 'wc-mcp-ability' ),
-				'input_schema'      => array(
-					'type'       => 'object',
-					'properties' => array(
-						'include_stats' => array(
-							'type'        => 'boolean',
-							'description' => 'Whether to include basic store statistics (product count, order count, etc.)',
-							'default'     => false,
-						),
-					),
-				),
-				'output_schema'     => array(
-					'type'       => 'object',
-					'properties' => array(
-						'store_name'          => array( 'type' => 'string' ),
-						'store_url'           => array( 'type' => 'string' ),
-						'admin_email'         => array( 'type' => 'string' ),
-						'woocommerce_version' => array( 'type' => 'string' ),
-						'wordpress_version'   => array( 'type' => 'string' ),
-						'currency'            => array( 'type' => 'string' ),
-						'country'             => array( 'type' => 'string' ),
-						'plugin_source'       => array( 'type' => 'string' ),
-						'stats'               => array(
-							'type'       => 'object',
-							'properties' => array(
-								'product_count'   => array( 'type' => 'integer' ),
-								'order_count'     => array( 'type' => 'integer' ),
-								'order_breakdown' => array(
-									'type'       => 'object',
-									'properties' => array(
-										'completed'  => array( 'type' => 'integer' ),
-										'processing' => array( 'type' => 'integer' ),
-										'pending'    => array( 'type' => 'integer' ),
-										'on-hold'    => array( 'type' => 'integer' ),
-										'cancelled'  => array( 'type' => 'integer' ),
-										'refunded'   => array( 'type' => 'integer' ),
-										'failed'     => array( 'type' => 'integer' ),
-									),
-								),
-								'customer_count'  => array( 'type' => 'integer' ),
-							),
-						),
-					),
-					'required'   => array( 'store_name', 'store_url', 'woocommerce_version', 'plugin_source' ),
-				),
-				'execute_callback'    => array( __CLASS__, 'execute_store_info_ability' ),
-				'permission_callback' => array( __CLASS__, 'check_store_info_permission' ),
+				'label'       => __( 'WooCommerce MCP', 'wc-mcp-ability' ),
+				'description' => __( 'Full-access WooCommerce store management abilities.', 'wc-mcp-ability' ),
 			)
 		);
 	}
 
 	/**
-	 * Execute the store info ability.
-	 *
-	 * @param array $input Input parameters.
-	 * @return array Store information.
+	 * Register all abilities. Must run on wp_abilities_api_init.
 	 */
-	public static function execute_store_info_ability( array $input ): array {
-		// Build the basic store information
-		$result = array(
-			'store_name'          => get_bloginfo( 'name' ),
-			'store_url'           => get_site_url(),
-			'admin_email'         => get_bloginfo( 'admin_email' ),
-			'woocommerce_version' => WC()->version,
-			'wordpress_version'   => get_bloginfo( 'version' ),
-			'currency'            => get_woocommerce_currency(),
-			'country'             => WC()->countries->get_base_country(),
-			'plugin_source'       => 'WooCommerce Abilities Demo Plugin v' . self::VERSION,
-		);
-
-		// Include statistics if requested
-		if ( ! empty( $input['include_stats'] ) ) {
-			$result['stats'] = self::get_store_statistics();
+	public static function register_abilities(): void {
+		if ( ! function_exists( 'wp_register_ability' ) ) {
+			return;
 		}
 
-		return $result;
+		// 1. List product categories (read-only).
+		wp_register_ability(
+			'wc-mcp/list-product-categories',
+			array(
+				'label'               => __( 'List product categories', 'wc-mcp-ability' ),
+				'description'         => __( 'Returns all WooCommerce product categories with id, name, slug, parent, description and product count.', 'wc-mcp-ability' ),
+				'category'            => self::CATEGORY,
+				'input_schema'        => array(
+					'type'                 => 'object',
+					'properties'           => array(
+						'search'   => array(
+							'type'        => 'string',
+							'description' => 'Optional search term to filter categories by name.',
+						),
+						'parent'   => array(
+							'type'        => 'integer',
+							'description' => 'Optional parent category id to list children of.',
+						),
+						'per_page' => array(
+							'type'        => 'integer',
+							'description' => 'Maximum number of categories to return. Default 100.',
+						),
+					),
+					'additionalProperties' => false,
+				),
+				'output_schema'       => array(
+					'type'        => 'array',
+					'description' => 'List of product categories.',
+					'items'       => array(
+						'type' => 'object',
+					),
+				),
+				'execute_callback'    => array( __CLASS__, 'cb_list_categories' ),
+				'permission_callback' => array( __CLASS__, 'permission' ),
+				'meta'                => self::meta( true, false, true ),
+			)
+		);
+
+		// 2. Create product category.
+		wp_register_ability(
+			'wc-mcp/create-product-category',
+			array(
+				'label'               => __( 'Create product category', 'wc-mcp-ability' ),
+				'description'         => __( 'Creates a new WooCommerce product category. The name is required; slug, description and parent are optional.', 'wc-mcp-ability' ),
+				'category'            => self::CATEGORY,
+				'input_schema'        => array(
+					'type'                 => 'object',
+					'properties'           => array(
+						'name'        => array(
+							'type'        => 'string',
+							'description' => 'Category name.',
+						),
+						'slug'        => array(
+							'type'        => 'string',
+							'description' => 'Optional URL slug. Auto-generated from name when omitted.',
+						),
+						'description' => array(
+							'type'        => 'string',
+							'description' => 'Optional category description.',
+						),
+						'parent'      => array(
+							'type'        => 'integer',
+							'description' => 'Optional parent category id.',
+						),
+					),
+					'required'             => array( 'name' ),
+					'additionalProperties' => false,
+				),
+				'output_schema'       => array(
+					'type'        => 'object',
+					'description' => 'The created category.',
+				),
+				'execute_callback'    => array( __CLASS__, 'cb_create_category' ),
+				'permission_callback' => array( __CLASS__, 'permission' ),
+				'meta'                => self::meta( false, false, false ),
+			)
+		);
+
+		// 3. Update product category.
+		wp_register_ability(
+			'wc-mcp/update-product-category',
+			array(
+				'label'               => __( 'Update product category', 'wc-mcp-ability' ),
+				'description'         => __( 'Updates an existing WooCommerce product category identified by id. Provide only the fields to change.', 'wc-mcp-ability' ),
+				'category'            => self::CATEGORY,
+				'input_schema'        => array(
+					'type'                 => 'object',
+					'properties'           => array(
+						'id'          => array(
+							'type'        => 'integer',
+							'description' => 'Category id to update.',
+						),
+						'name'        => array(
+							'type'        => 'string',
+							'description' => 'New name.',
+						),
+						'slug'        => array(
+							'type'        => 'string',
+							'description' => 'New slug.',
+						),
+						'description' => array(
+							'type'        => 'string',
+							'description' => 'New description.',
+						),
+						'parent'      => array(
+							'type'        => 'integer',
+							'description' => 'New parent category id.',
+						),
+					),
+					'required'             => array( 'id' ),
+					'additionalProperties' => false,
+				),
+				'output_schema'       => array(
+					'type'        => 'object',
+					'description' => 'The updated category.',
+				),
+				'execute_callback'    => array( __CLASS__, 'cb_update_category' ),
+				'permission_callback' => array( __CLASS__, 'permission' ),
+				'meta'                => self::meta( false, false, true ),
+			)
+		);
+
+		// 4. Delete product category (destructive).
+		wp_register_ability(
+			'wc-mcp/delete-product-category',
+			array(
+				'label'               => __( 'Delete product category', 'wc-mcp-ability' ),
+				'description'         => __( 'Permanently deletes a WooCommerce product category identified by id.', 'wc-mcp-ability' ),
+				'category'            => self::CATEGORY,
+				'input_schema'        => array(
+					'type'                 => 'object',
+					'properties'           => array(
+						'id' => array(
+							'type'        => 'integer',
+							'description' => 'Category id to delete.',
+						),
+					),
+					'required'             => array( 'id' ),
+					'additionalProperties' => false,
+				),
+				'output_schema'       => array(
+					'type'        => 'object',
+					'description' => 'Deletion result.',
+				),
+				'execute_callback'    => array( __CLASS__, 'cb_delete_category' ),
+				'permission_callback' => array( __CLASS__, 'permission' ),
+				'meta'                => self::meta( false, true, true ),
+			)
+		);
+
+		// 5. Generic WooCommerce REST request (full store access).
+		wp_register_ability(
+			'wc-mcp/wc-request',
+			array(
+				'label'               => __( 'WooCommerce REST request', 'wc-mcp-ability' ),
+				'description'         => __( 'Performs any WooCommerce REST API (wc/v3) request. Provide method (GET, POST, PUT or DELETE), endpoint (e.g. "products", "orders", "products/categories", "customers", "coupons", "settings", "reports") and optional params. This covers the full WooCommerce store: products, variations, orders, customers, coupons, shipping, taxes, settings and reports.', 'wc-mcp-ability' ),
+				'category'            => self::CATEGORY,
+				'input_schema'        => array(
+					'type'                 => 'object',
+					'properties'           => array(
+						'method'   => array(
+							'type'        => 'string',
+							'description' => 'HTTP method: GET, POST, PUT or DELETE.',
+						),
+						'endpoint' => array(
+							'type'        => 'string',
+							'description' => 'WooCommerce REST endpoint after wc/v3/, e.g. "products" or "products/categories".',
+						),
+						'params'   => array(
+							'type'        => 'object',
+							'description' => 'Optional request parameters (query for GET/DELETE, body for POST/PUT).',
+						),
+					),
+					'required'             => array( 'method', 'endpoint' ),
+					'additionalProperties' => false,
+				),
+				'output_schema'       => array(
+					'type'        => 'object',
+					'description' => 'Response containing success flag, HTTP status and data.',
+				),
+				'execute_callback'    => array( __CLASS__, 'cb_wc_request' ),
+				'permission_callback' => array( __CLASS__, 'permission' ),
+				'meta'                => self::meta( false, false, false ),
+			)
+		);
 	}
 
 	/**
-	 * Get store statistics.
-	 *
-	 * @return array Store statistics.
+	 * Build the meta array for an ability.
 	 */
-	private static function get_store_statistics(): array {
-		// Products use 'publish' status
-		$product_count = (int) wp_count_posts( 'product' )->publish;
-
-		// Orders - using WooCommerce order status constants
-		$completed_count  = wc_orders_count( 'completed' );
-		$processing_count = wc_orders_count( 'processing' );
-		$pending_count    = wc_orders_count( 'pending' );
-		$on_hold_count    = wc_orders_count( 'on-hold' );
-		$cancelled_count  = wc_orders_count( 'cancelled' );
-		$refunded_count   = wc_orders_count( 'refunded' );
-		$failed_count     = wc_orders_count( 'failed' );
-
-		$order_breakdown = array(
-			'completed'  => $completed_count,
-			'processing' => $processing_count,
-			'pending'    => $pending_count,
-			'on-hold'    => $on_hold_count,
-			'cancelled'  => $cancelled_count,
-			'refunded'   => $refunded_count,
-			'failed'     => $failed_count,
-		);
-
-		$order_count = array_sum( $order_breakdown );
-
-		// Customers - count users with 'customer' role
-		$users_counts   = count_users();
-		$customer_count = isset( $users_counts['avail_roles']['customer'] ) ? (int) $users_counts['avail_roles']['customer'] : 0;
-
+	private static function meta( bool $readonly, bool $destructive, bool $idempotent ): array {
 		return array(
-			'product_count'    => $product_count,
-			'order_count'      => $order_count,
-			'order_breakdown'  => $order_breakdown,
-			'customer_count'   => $customer_count,
+			'show_in_rest' => true,
+			'mcp'          => array(
+				'public' => true,
+			),
+			'annotations'  => array(
+				'readonly'    => $readonly,
+				'destructive' => $destructive,
+				'idempotent'  => $idempotent,
+			),
+			'expose_in_deprecated_woocommerce_mcp' => true,
 		);
 	}
 
 	/**
-	 * Check permission for the store info ability.
-	 *
-	 * @return bool Whether user has permission.
+	 * Permission check for all abilities.
 	 */
-	public static function check_store_info_permission(): bool {
-		// Allow users who can manage WooCommerce (same as system_status endpoint)
+	public static function permission( $input = null ): bool {
 		return current_user_can( 'manage_woocommerce' );
 	}
 
 	/**
-	 * Filter to include demo ability in MCP server.
-	 *
-	 * @param bool   $include    Whether to include the ability.
-	 * @param string $ability_id The ability ID being checked.
-	 * @return bool Whether to include the ability.
+	 * Include our abilities in the deprecated WooCommerce MCP endpoint.
 	 */
-	public static function include_demo_ability_in_mcp( bool $include, string $ability_id ): bool {
-		// Include our demo ability even though it doesn't have woocommerce/ namespace
-		if ( 'woocommerce-demo/store-info' === $ability_id ) {
+	public static function include_in_woocommerce_mcp( $include, $ability_name ) {
+		if ( is_string( $ability_name ) && str_starts_with( $ability_name, 'wc-mcp/' ) ) {
 			return true;
 		}
-
 		return $include;
+	}
+
+	// ---------------------------------------------------------------------
+	// Execute callbacks
+	// ---------------------------------------------------------------------
+
+	public static function cb_list_categories( $input ) {
+		$args = array(
+			'taxonomy'   => 'product_cat',
+			'hide_empty' => false,
+			'number'     => isset( $input['per_page'] ) ? (int) $input['per_page'] : 100,
+		);
+		if ( ! empty( $input['search'] ) ) {
+			$args['search'] = (string) $input['search'];
+		}
+		if ( isset( $input['parent'] ) ) {
+			$args['parent'] = (int) $input['parent'];
+		}
+
+		$terms = get_terms( $args );
+		if ( is_wp_error( $terms ) ) {
+			return $terms;
+		}
+
+		$out = array();
+		foreach ( $terms as $term ) {
+			$out[] = array(
+				'id'          => (int) $term->term_id,
+				'name'        => $term->name,
+				'slug'        => $term->slug,
+				'parent'      => (int) $term->parent,
+				'description' => $term->description,
+				'count'       => (int) $term->count,
+			);
+		}
+		return $out;
+	}
+
+	public static function cb_create_category( $input ) {
+		if ( empty( $input['name'] ) ) {
+			return new \WP_Error( 'missing_name', __( 'A category name is required.', 'wc-mcp-ability' ) );
+		}
+
+		$args = array();
+		if ( ! empty( $input['slug'] ) ) {
+			$args['slug'] = (string) $input['slug'];
+		}
+		if ( ! empty( $input['description'] ) ) {
+			$args['description'] = (string) $input['description'];
+		}
+		if ( ! empty( $input['parent'] ) ) {
+			$args['parent'] = (int) $input['parent'];
+		}
+
+		$res = wp_insert_term( (string) $input['name'], 'product_cat', $args );
+		if ( is_wp_error( $res ) ) {
+			return $res;
+		}
+
+		$term = get_term( $res['term_id'], 'product_cat' );
+		return array(
+			'id'          => (int) $term->term_id,
+			'name'        => $term->name,
+			'slug'        => $term->slug,
+			'parent'      => (int) $term->parent,
+			'description' => $term->description,
+		);
+	}
+
+	public static function cb_update_category( $input ) {
+		if ( empty( $input['id'] ) ) {
+			return new \WP_Error( 'missing_id', __( 'A category id is required.', 'wc-mcp-ability' ) );
+		}
+
+		$args = array();
+		foreach ( array( 'name', 'slug', 'description' ) as $key ) {
+			if ( isset( $input[ $key ] ) ) {
+				$args[ $key ] = (string) $input[ $key ];
+			}
+		}
+		if ( isset( $input['parent'] ) ) {
+			$args['parent'] = (int) $input['parent'];
+		}
+
+		$res = wp_update_term( (int) $input['id'], 'product_cat', $args );
+		if ( is_wp_error( $res ) ) {
+			return $res;
+		}
+
+		$term = get_term( (int) $input['id'], 'product_cat' );
+		return array(
+			'id'          => (int) $term->term_id,
+			'name'        => $term->name,
+			'slug'        => $term->slug,
+			'parent'      => (int) $term->parent,
+			'description' => $term->description,
+		);
+	}
+
+	public static function cb_delete_category( $input ) {
+		if ( empty( $input['id'] ) ) {
+			return new \WP_Error( 'missing_id', __( 'A category id is required.', 'wc-mcp-ability' ) );
+		}
+
+		$res = wp_delete_term( (int) $input['id'], 'product_cat' );
+		if ( is_wp_error( $res ) ) {
+			return $res;
+		}
+
+		return array(
+			'deleted' => (bool) $res,
+			'id'      => (int) $input['id'],
+		);
+	}
+
+	public static function cb_wc_request( $input ) {
+		if ( empty( $input['method'] ) || empty( $input['endpoint'] ) ) {
+			return new \WP_Error( 'missing_args', __( 'Both method and endpoint are required.', 'wc-mcp-ability' ) );
+		}
+
+		$method   = strtoupper( (string) $input['method'] );
+		$endpoint = ltrim( (string) $input['endpoint'], '/' );
+		$params   = ( isset( $input['params'] ) && is_array( $input['params'] ) ) ? $input['params'] : array();
+
+		$route   = '/wc/v3/' . $endpoint;
+		$request = new \WP_REST_Request( $method, $route );
+
+		if ( in_array( $method, array( 'GET', 'DELETE' ), true ) ) {
+			foreach ( $params as $key => $value ) {
+				$request->set_param( $key, $value );
+			}
+		} else {
+			$request->set_body_params( $params );
+		}
+
+		$response = rest_do_request( $request );
+
+		if ( $response->is_error() ) {
+			$error = $response->as_error();
+			return array(
+				'success' => false,
+				'status'  => $response->get_status(),
+				'error'   => $error->get_error_message(),
+			);
+		}
+
+		return array(
+			'success' => true,
+			'status'  => $response->get_status(),
+			'data'    => $response->get_data(),
+		);
 	}
 }
 
-// Initialize the plugin
-WCAbilitiesDemo::init();
+add_action( 'plugins_loaded', array( __NAMESPACE__ . '\\Plugin', 'init' ) );
